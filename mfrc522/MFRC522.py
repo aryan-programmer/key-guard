@@ -21,9 +21,12 @@
 #    along with MFRC522-Python.  If not, see <http://www.gnu.org/licenses/>.
 #
 import logging
+import traceback
 
 import RPi.GPIO as GPIO
 import spidev
+
+from mfrc522.chip_select_lock import ChipSelectLineLock
 
 
 class MFRC522:
@@ -125,300 +128,286 @@ class MFRC522:
 
     serNum = []
 
-    def __init__(self, bus=0, device=0, spd=1000000, pin_mode=10, pin_rst=-1, debugLevel='WARNING'):
-        self.spi = spidev.SpiDev()
-        self.spi.open(bus, device)
+    def __init__(self, bus, device, lock: ChipSelectLineLock, spd=1000000):
+        self.spi = spidev.SpiDev(bus, device)
         self.spi.max_speed_hz = spd
+        self.spi.open(bus, device)
+        self.lock = lock
 
         self.logger = logging.getLogger('mfrc522Logger')
-        self.logger.addHandler(logging.StreamHandler())
-        level = logging.getLevelName(debugLevel)
-        self.logger.setLevel(level)
 
-        # gpioMode = GPIO.getmode()
-        #
-        # if gpioMode is None:
-        #     GPIO.setmode(pin_mode)
-        # else:
-        #     pin_mode = gpioMode
-        #
-        # if pin_rst == -1:
-        #     if pin_mode == 11:
-        #         pin_rst = 15
-        #     else:
-        #         pin_rst = 22
-        #
-        # GPIO.setup(pin_rst, GPIO.OUT)
-        # GPIO.output(pin_rst, 1)
-        self.MFRC522_Init()
+        self.initialize()
+        traceback.print_stack()
+        self.logger.log(
+            logging.WARN,
+            "Successfully initialized RF522 with bus = %d, device = %d",
+            bus,
+            device,
+        )
 
-    def MFRC522_Reset(self):
-        self.Write_MFRC522(self.CommandReg, self.PCD_RESETPHASE)
+    def reset(self):
+        with self.lock:
+            self.write_register(self.CommandReg, self.PCD_RESETPHASE)
 
-    def Write_MFRC522(self, addr, val):
-        val = self.spi.xfer2([(addr << 1) & 0x7E, val])
+    def write_register(self, addr, val):
+        with self.lock:
+            self.spi.xfer2([(addr << 1) & 0x7E, val])
 
-    def Read_MFRC522(self, addr):
-        val = self.spi.xfer2([((addr << 1) & 0x7E) | 0x80, 0])
-        return val[1]
+    def read_register(self, addr):
+        with self.lock:
+            val = self.spi.xfer2([((addr << 1) & 0x7E) | 0x80, 0])
+            return val[1]
 
-    def Close_MFRC522(self):
-        self.spi.close()
-        GPIO.cleanup()
+    def close(self):
+        with self.lock:
+            self.spi.close()
+            GPIO.cleanup()
 
-    def SetBitMask(self, reg, mask):
-        tmp = self.Read_MFRC522(reg)
-        self.Write_MFRC522(reg, tmp | mask)
+    def set_bit_mask(self, reg, mask):
+        with self.lock:
+            tmp = self.read_register(reg)
+            self.write_register(reg, tmp | mask)
 
-    def ClearBitMask(self, reg, mask):
-        tmp = self.Read_MFRC522(reg)
-        self.Write_MFRC522(reg, tmp & (~mask))
+    def clear_bit_mask(self, reg, mask):
+        with self.lock:
+            tmp = self.read_register(reg)
+            self.write_register(reg, tmp & (~mask))
 
-    def AntennaOn(self):
-        temp = self.Read_MFRC522(self.TxControlReg)
-        if (~(temp & 0x03)):
-            self.SetBitMask(self.TxControlReg, 0x03)
+    def turn_antenna_on(self):
+        with self.lock:
+            temp = self.read_register(self.TxControlReg)
+            if ~(temp & 0x03):
+                self.set_bit_mask(self.TxControlReg, 0x03)
 
-    def AntennaOff(self):
-        self.ClearBitMask(self.TxControlReg, 0x03)
+    def turn_antenna_off(self):
+        with self.lock:
+            self.clear_bit_mask(self.TxControlReg, 0x03)
 
-    def MFRC522_ToCard(self, command, sendData):
-        backData = []
-        backLen = 0
-        status = self.MI_ERR
-        irqEn = 0x00
-        waitIRq = 0x00
-        lastBits = None
-        n = 0
-
-        if command == self.PCD_AUTHENT:
-            irqEn = 0x12
-            waitIRq = 0x10
-        if command == self.PCD_TRANSCEIVE:
-            irqEn = 0x77
-            waitIRq = 0x30
-
-        self.Write_MFRC522(self.CommIEnReg, irqEn | 0x80)
-        self.ClearBitMask(self.CommIrqReg, 0x80)
-        self.SetBitMask(self.FIFOLevelReg, 0x80)
-
-        self.Write_MFRC522(self.CommandReg, self.PCD_IDLE)
-
-        for i in range(len(sendData)):
-            self.Write_MFRC522(self.FIFODataReg, sendData[i])
-
-        self.Write_MFRC522(self.CommandReg, command)
-
-        if command == self.PCD_TRANSCEIVE:
-            self.SetBitMask(self.BitFramingReg, 0x80)
-
-        i = 2000
-        while True:
-            n = self.Read_MFRC522(self.CommIrqReg)
-            i -= 1
-            if ~((i != 0) and ~(n & 0x01) and ~(n & waitIRq)):
-                break
-
-        self.ClearBitMask(self.BitFramingReg, 0x80)
-
-        if i != 0:
-            if (self.Read_MFRC522(self.ErrorReg) & 0x1B) == 0x00:
-                status = self.MI_OK
-
-                if n & irqEn & 0x01:
-                    status = self.MI_NOTAGERR
-
-                if command == self.PCD_TRANSCEIVE:
-                    n = self.Read_MFRC522(self.FIFOLevelReg)
-                    lastBits = self.Read_MFRC522(self.ControlReg) & 0x07
-                    if lastBits != 0:
-                        backLen = (n - 1) * 8 + lastBits
-                    else:
-                        backLen = n * 8
-
-                    if n == 0:
-                        n = 1
-                    if n > self.MAX_LEN:
-                        n = self.MAX_LEN
-
-                    for i in range(n):
-                        backData.append(self.Read_MFRC522(self.FIFODataReg))
-            else:
-                status = self.MI_ERR
-
-        return (status, backData, backLen)
-
-    def MFRC522_Request(self, reqMode):
-        status = None
-        backBits = None
-        TagType = []
-
-        self.Write_MFRC522(self.BitFramingReg, 0x07)
-
-        TagType.append(reqMode)
-        (status, backData, backBits) = self.MFRC522_ToCard(self.PCD_TRANSCEIVE, TagType)
-
-        if ((status != self.MI_OK) | (backBits != 0x10)):
+    def _to_card(self, command, send_data):
+        with self.lock:
+            back_data = []
+            back_len = 0
             status = self.MI_ERR
+            irq_en = 0x00
+            wait_i_rq = 0x00
 
-        return (status, backBits)
+            if command == self.PCD_AUTHENT:
+                irq_en = 0x12
+                wait_i_rq = 0x10
+            if command == self.PCD_TRANSCEIVE:
+                irq_en = 0x77
+                wait_i_rq = 0x30
 
-    def MFRC522_Anticoll(self):
-        backData = []
-        serNumCheck = 0
+            self.write_register(self.CommIEnReg, irq_en | 0x80)
+            self.clear_bit_mask(self.CommIrqReg, 0x80)
+            self.set_bit_mask(self.FIFOLevelReg, 0x80)
 
-        serNum = []
+            self.write_register(self.CommandReg, self.PCD_IDLE)
 
-        self.Write_MFRC522(self.BitFramingReg, 0x00)
+            for i in range(len(send_data)):
+                self.write_register(self.FIFODataReg, send_data[i])
 
-        serNum.append(self.PICC_ANTICOLL)
-        serNum.append(0x20)
+            self.write_register(self.CommandReg, command)
 
-        (status, backData, backBits) = self.MFRC522_ToCard(self.PCD_TRANSCEIVE, serNum)
+            if command == self.PCD_TRANSCEIVE:
+                self.set_bit_mask(self.BitFramingReg, 0x80)
 
-        if (status == self.MI_OK):
-            i = 0
-            if len(backData) == 5:
-                for i in range(4):
-                    serNumCheck = serNumCheck ^ backData[i]
-                if serNumCheck != backData[4]:
+            i = 2000
+            while True:
+                n = self.read_register(self.CommIrqReg)
+                i -= 1
+                if ~((i != 0) and ~(n & 0x01) and ~(n & wait_i_rq)):
+                    break
+
+            self.clear_bit_mask(self.BitFramingReg, 0x80)
+
+            if i != 0:
+                if (self.read_register(self.ErrorReg) & 0x1B) == 0x00:
+                    status = self.MI_OK
+
+                    if n & irq_en & 0x01:
+                        status = self.MI_NOTAGERR
+
+                    if command == self.PCD_TRANSCEIVE:
+                        n = self.read_register(self.FIFOLevelReg)
+                        last_bits = self.read_register(self.ControlReg) & 0x07
+                        if last_bits != 0:
+                            back_len = (n - 1) * 8 + last_bits
+                        else:
+                            back_len = n * 8
+
+                        if n == 0:
+                            n = 1
+                        if n > self.MAX_LEN:
+                            n = self.MAX_LEN
+
+                        for i in range(n):
+                            back_data.append(self.read_register(self.FIFODataReg))
+                else:
                     status = self.MI_ERR
-            else:
+
+            return status, back_data, back_len
+
+    def send_request(self, req_mode):
+        with self.lock:
+            tag_type = []
+
+            self.write_register(self.BitFramingReg, 0x07)
+
+            tag_type.append(req_mode)
+            (status, back_data, backBits) = self._to_card(self.PCD_TRANSCEIVE, tag_type)
+
+            if (status != self.MI_OK) | (backBits != 0x10):
                 status = self.MI_ERR
 
-        return (status, backData)
+        return status, backBits
 
-    def CalulateCRC(self, pIndata):
-        self.ClearBitMask(self.DivIrqReg, 0x04)
-        self.SetBitMask(self.FIFOLevelReg, 0x80)
+    def anticoll(self):
+        with self.lock:
+            ser_num_check = 0
 
-        for i in range(len(pIndata)):
-            self.Write_MFRC522(self.FIFODataReg, pIndata[i])
+            ser_num = []
 
-        self.Write_MFRC522(self.CommandReg, self.PCD_CALCCRC)
-        i = 0xFF
-        while True:
-            n = self.Read_MFRC522(self.DivIrqReg)
-            i -= 1
-            if not ((i != 0) and not (n & 0x04)):
-                break
-        pOutData = []
-        pOutData.append(self.Read_MFRC522(self.CRCResultRegL))
-        pOutData.append(self.Read_MFRC522(self.CRCResultRegM))
-        return pOutData
+            self.write_register(self.BitFramingReg, 0x00)
 
-    def MFRC522_SelectTag(self, serNum):
-        backData = []
-        buf = []
-        buf.append(self.PICC_SElECTTAG)
-        buf.append(0x70)
+            ser_num.append(self.PICC_ANTICOLL)
+            ser_num.append(0x20)
 
-        for i in range(5):
-            buf.append(serNum[i])
+            (status, back_data, backBits) = self._to_card(self.PCD_TRANSCEIVE, ser_num)
 
-        pOut = self.CalulateCRC(buf)
-        buf.append(pOut[0])
-        buf.append(pOut[1])
-        (status, backData, backLen) = self.MFRC522_ToCard(self.PCD_TRANSCEIVE, buf)
-
-        if (status == self.MI_OK) and (backLen == 0x18):
-            self.logger.debug("Size: " + str(backData[0]))
-            return backData[0]
-        else:
-            return 0
-
-    def MFRC522_Auth(self, authMode, BlockAddr, Sectorkey, serNum):
-        buff = []
-
-        # First byte should be the authMode (A or B)
-        buff.append(authMode)
-
-        # Second byte is the trailerBlock (usually 7)
-        buff.append(BlockAddr)
-
-        # Now we need to append the authKey which usually is 6 bytes of 0xFF
-        for i in range(len(Sectorkey)):
-            buff.append(Sectorkey[i])
-
-        # Next we append the first 4 bytes of the UID
-        for i in range(4):
-            buff.append(serNum[i])
-
-        # Now we start the authentication itself
-        (status, backData, backLen) = self.MFRC522_ToCard(self.PCD_AUTHENT, buff)
-
-        # Check if an error occurred
-        if not (status == self.MI_OK):
-            self.logger.error("AUTH ERROR!!")
-        if not (self.Read_MFRC522(self.Status2Reg) & 0x08) != 0:
-            self.logger.error("AUTH ERROR(status2reg & 0x08) != 0")
-
-        # Return the status
-        return status
-
-    def MFRC522_StopCrypto1(self):
-        self.ClearBitMask(self.Status2Reg, 0x08)
-
-    def MFRC522_Read(self, blockAddr):
-        recvData = []
-        recvData.append(self.PICC_READ)
-        recvData.append(blockAddr)
-        pOut = self.CalulateCRC(recvData)
-        recvData.append(pOut[0])
-        recvData.append(pOut[1])
-        (status, backData, backLen) = self.MFRC522_ToCard(self.PCD_TRANSCEIVE, recvData)
-        if not (status == self.MI_OK):
-            self.logger.error("Error while reading!")
-
-        if len(backData) == 16:
-            self.logger.debug("Sector " + str(blockAddr) + " " + str(backData))
-            return backData
-        else:
-            return None
-
-    def MFRC522_Write(self, blockAddr, writeData):
-        buff = []
-        buff.append(self.PICC_WRITE)
-        buff.append(blockAddr)
-        crc = self.CalulateCRC(buff)
-        buff.append(crc[0])
-        buff.append(crc[1])
-        (status, backData, backLen) = self.MFRC522_ToCard(self.PCD_TRANSCEIVE, buff)
-        if not (status == self.MI_OK) or not (backLen == 4) or not ((backData[0] & 0x0F) == 0x0A):
-            status = self.MI_ERR
-
-        self.logger.debug("%s backdata &0x0F == 0x0A %s" % (backLen, backData[0] & 0x0F))
-        if status == self.MI_OK:
-            buf = []
-            for i in range(16):
-                buf.append(writeData[i])
-
-            crc = self.CalulateCRC(buf)
-            buf.append(crc[0])
-            buf.append(crc[1])
-            (status, backData, backLen) = self.MFRC522_ToCard(self.PCD_TRANSCEIVE, buf)
-            if not (status == self.MI_OK) or not (backLen == 4) or not ((backData[0] & 0x0F) == 0x0A):
-                self.logger.error("Error while writing")
             if status == self.MI_OK:
-                self.logger.debug("Data written")
+                if len(back_data) == 5:
+                    for i in range(4):
+                        ser_num_check = ser_num_check ^ back_data[i]
+                    if ser_num_check != back_data[4]:
+                        status = self.MI_ERR
+                else:
+                    status = self.MI_ERR
 
-    def MFRC522_DumpClassic1K(self, key, uid):
-        for i in range(64):
-            status = self.MFRC522_Auth(self.PICC_AUTHENT1A, i, key, uid)
-            # Check if authenticated
-            if status == self.MI_OK:
-                self.MFRC522_Read(i)
+            return status, back_data
+
+    def calculate_crc(self, p_in_data):
+        with self.lock:
+            self.clear_bit_mask(self.DivIrqReg, 0x04)
+            self.set_bit_mask(self.FIFOLevelReg, 0x80)
+
+            for i in range(len(p_in_data)):
+                self.write_register(self.FIFODataReg, p_in_data[i])
+
+            self.write_register(self.CommandReg, self.PCD_CALCCRC)
+            i = 0xFF
+            while True:
+                n = self.read_register(self.DivIrqReg)
+                i -= 1
+                if not ((i != 0) and not (n & 0x04)):
+                    break
+            p_out_data = [self.read_register(self.CRCResultRegL), self.read_register(self.CRCResultRegM)]
+            return p_out_data
+
+    def select_tag(self, ser_num):
+        with self.lock:
+            buf = [self.PICC_SElECTTAG, 0x70, *ser_num[:5]]
+
+            p_out = self.calculate_crc(buf)
+            buf.append(p_out[0])
+            buf.append(p_out[1])
+            (status, back_data, back_len) = self._to_card(self.PCD_TRANSCEIVE, buf)
+
+            if (status == self.MI_OK) and (back_len == 0x18):
+                self.logger.debug("Size: " + str(back_data[0]))
+                return back_data[0]
             else:
-                self.logger.error("Authentication error")
+                return 0
 
-    def MFRC522_Init(self):
-        self.MFRC522_Reset()
+    def auth(self, auth_mode, block_addr, sector_key, ser_num):
+        with self.lock:
+            buff = [
+                # First byte should be the authMode (A or B)
+                auth_mode,
+                # Second byte is the trailerBlock (usually 7)
+                block_addr,
+                # Now we need to append the authKey which usually is 6 bytes of 0xFF
+                *sector_key,
+                # Next we append the first 4 bytes of the UID
+                *ser_num[:4]
+            ]
 
-        self.Write_MFRC522(self.TModeReg, 0x8D)
-        self.Write_MFRC522(self.TPrescalerReg, 0x3E)
-        self.Write_MFRC522(self.TReloadRegL, 30)
-        self.Write_MFRC522(self.TReloadRegH, 0)
+            # Now we start the authentication itself
+            (status, back_data, back_len) = self._to_card(self.PCD_AUTHENT, buff)
 
-        self.Write_MFRC522(self.TxAutoReg, 0x40)
-        self.Write_MFRC522(self.ModeReg, 0x3D)
-        self.AntennaOn()
+            # Check if an error occurred
+            if not (status == self.MI_OK):
+                self.logger.error("AUTH ERROR!!")
+            if not (self.read_register(self.Status2Reg) & 0x08) != 0:
+                self.logger.error("AUTH ERROR(status2reg & 0x08) != 0")
+
+            # Return the status
+            return status
+
+    def stop_crypto1(self):
+        with self.lock:
+            self.clear_bit_mask(self.Status2Reg, 0x08)
+
+    def read_block(self, block_addr):
+        with self.lock:
+            recv_data = [self.PICC_READ, block_addr]
+            p_out = self.calculate_crc(recv_data)
+            recv_data.append(p_out[0])
+            recv_data.append(p_out[1])
+            (status, back_data, back_len) = self._to_card(self.PCD_TRANSCEIVE, recv_data)
+            if not (status == self.MI_OK):
+                self.logger.error("Error while reading!")
+
+            if len(back_data) == 16:
+                self.logger.debug("Sector " + str(block_addr) + " " + str(back_data))
+                return back_data
+            else:
+                return None
+
+    def write_block(self, block_addr, write_data):
+        with self.lock:
+            buff = [self.PICC_WRITE, block_addr]
+            crc = self.calculate_crc(buff)
+            buff.append(crc[0])
+            buff.append(crc[1])
+            (status, back_data, back_len) = self._to_card(self.PCD_TRANSCEIVE, buff)
+            if not (status == self.MI_OK) or not (back_len == 4) or not ((back_data[0] & 0x0F) == 0x0A):
+                status = self.MI_ERR
+
+            self.logger.debug("%s backdata &0x0F == 0x0A %s" % (back_len, back_data[0] & 0x0F))
+            if status == self.MI_OK:
+                buf = []
+                for i in range(16):
+                    buf.append(write_data[i])
+
+                crc = self.calculate_crc(buf)
+                buf.append(crc[0])
+                buf.append(crc[1])
+                (status, back_data, back_len) = self._to_card(self.PCD_TRANSCEIVE, buf)
+                if not (status == self.MI_OK) or not (back_len == 4) or not ((back_data[0] & 0x0F) == 0x0A):
+                    self.logger.error("Error while writing")
+                if status == self.MI_OK:
+                    self.logger.debug("Data written")
+
+    def dump_classic_1k(self, key, uid):
+        with self.lock:
+            for i in range(64):
+                status = self.auth(self.PICC_AUTHENT1A, i, key, uid)
+                # Check if authenticated
+                if status == self.MI_OK:
+                    self.read_block(i)
+                else:
+                    self.logger.error("Authentication error")
+
+    def initialize(self):
+        with self.lock:
+            self.reset()
+
+            self.write_register(self.TModeReg, 0x8D)
+            self.write_register(self.TPrescalerReg, 0x3E)
+            self.write_register(self.TReloadRegL, 30)
+            self.write_register(self.TReloadRegH, 0)
+
+            self.write_register(self.TxAutoReg, 0x40)
+            self.write_register(self.ModeReg, 0x3D)
+            self.turn_antenna_on()

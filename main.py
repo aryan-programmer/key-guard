@@ -9,8 +9,8 @@ from gpiozero.tones import Tone
 from data_objects import UserData, KeyData
 from database import KeysDB, UsersDB
 from key_solenoid_lock import KeySolenoidLock
-from mfrc522_2 import SimpleMFRC522
-from mfrc522_2.chip_select_lock import ChipSelectLinesLock
+from mfrc522 import SimpleMFRC522
+from mfrc522.chip_select_lock import ChipSelectLinesLock
 
 
 def set_pin_mode():
