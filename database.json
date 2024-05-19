@@ -1,0 +1,21 @@
+{
+	"keys": [
+		{
+			"id": "1",
+			"rf_id": "b8463312df",
+			"name": "Key 1"
+		}
+		// f37199a6bd
+	],
+	"users": [
+		{
+			"id": "1",
+			"rf_id": "625749512d",
+			"name": "Aryan Chudasama",
+			"authorized_for": [
+				"1"
+			]
+		}
+		// 53b5249654
+	]
+}
