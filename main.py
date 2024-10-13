@@ -6,6 +6,7 @@ import gpiozero
 from RPi import GPIO
 from gpiozero.tones import Tone
 
+from current_key_store import CurrentKeyStore
 from data_objects import UserData, KeyData
 from database import KeysDB, UsersDB
 from key_solenoid_lock import KeySolenoidLock
@@ -23,7 +24,9 @@ def set_pin_mode():
     return pin_mode
 
 
-logger = logging.getLogger('mfrc522Logger')
+# source ../.virtualenvs/key-guard/bin/activate
+
+logger = logging.getLogger("mfrc522Logger")
 logger.addHandler(logging.StreamHandler())
 level = logging.getLevelName(logging.WARN)
 logger.setLevel(level)
@@ -33,10 +36,10 @@ READER_TIMEOUT_S = 0.5
 MAIN_LOOP_DELAY_S = 1 / 1000
 
 led = gpiozero.LED(27)
-buzzer = gpiozero.TonalBuzzer(19, mid_tone=Tone("A5"))
-solenoid_controller = gpiozero.DigitalOutputDevice(22)
+buzzer = gpiozero.TonalBuzzer(12, mid_tone=Tone("A5"))
+solenoid_controller = gpiozero.DigitalOutputDevice(23)
 set_pin_mode()
-reset_pin = gpiozero.DigitalOutputDevice(26)
+reset_pin = gpiozero.DigitalOutputDevice(22)
 
 reset_pin.off()
 time.sleep(1)
@@ -48,16 +51,24 @@ lines_locks = ChipSelectLinesLock([user_reader_select, key_reader_select])
 user_reader = SimpleMFRC522(bus=0, device=0, lock=lines_locks.individual_line_lock(0))
 key_reader = SimpleMFRC522(bus=0, device=0, lock=lines_locks.individual_line_lock(1))
 key_locker = KeySolenoidLock(init_locked=False, solenoid_controller=solenoid_controller)
-past_key_card_id = None
-past_user_card_id = None
+past_user_card_id: str | None = None
+current_key_store = CurrentKeyStore(
+    key_locker=key_locker,
+    key_reader=key_reader,
+    key_reader_timeout_s=READER_TIMEOUT_S,
+    key_relock_timeout_s=RELOCK_KEY_TIMEOUT_S,
+)
 
-print(f"Buzzer data: min: {buzzer.min_tone.frequency}, mid: {buzzer.mid_tone.frequency}, max: {buzzer.max_tone.frequency}")
+print(
+    f"Buzzer data: min: {buzzer.min_tone.frequency}, mid: {buzzer.mid_tone.frequency}, max: {buzzer.max_tone.frequency}"
+)
 
 
 def turn_off_buzzer():
     buzzer.stop()
 
 
+@current_key_store.unauthorized_key_swap_attempted.on
 def on_unauthorized_key_swap_attempted():
     print("Unauthorized key swap attempted.")
     led.blink(0.125, 0.125, 16)
@@ -65,6 +76,7 @@ def on_unauthorized_key_swap_attempted():
     # threading.Timer(3, turn_off_buzzer).start()
 
 
+@current_key_store.key_stolen.on
 def on_key_stolen():
     print("Key stolen.")
     led.blink(0.125, 0.125, 8)
@@ -72,6 +84,7 @@ def on_key_stolen():
     threading.Timer(7, turn_off_buzzer).start()
 
 
+@current_key_store.key_found.on
 def on_key_found(key: KeyData):
     print("Key found: ", key)
     led.blink(0.25, 0.25, 4)
@@ -95,9 +108,9 @@ def on_unknown_user_found(card_id):
 
 def relock_key_timeout_handler():
     print("Re-locking key")
+    current_key_store.key_tick()
     key_locker.is_key_locked = True
     turn_off_buzzer()
-    key_tick()
 
 
 def user_tick():
@@ -121,35 +134,6 @@ def user_tick():
     past_user_card_id = card_id
 
 
-def key_tick():
-    global past_key_card_id
-
-    card_id = key_reader.read_id(timeout=READER_TIMEOUT_S)
-    # if card_id is not None:
-    #     print("Past Key: ", past_key_card_id)
-    #     print("Key: ", card_id)
-    if past_key_card_id == card_id:
-        past_key_card_id = card_id
-        return
-
-    if key_locker.is_key_locked:
-        if past_key_card_id is None:
-            on_unauthorized_key_swap_attempted()
-            pass
-        else:
-            on_key_stolen()
-    elif card_id is not None:
-        key = KeysDB().by_rf_id(card_id)
-        if key is not None:
-            on_key_found(key)
-            key_locker.is_key_locked = True
-        else:
-            on_unauthorized_key_swap_attempted()
-            pass
-
-    past_key_card_id = card_id
-
-
 def on_rfid_card_found(card_id):
     led.blink(0.75, 0.25, 3)
     print("Unknown card given: ", card_id)
@@ -158,8 +142,10 @@ def on_rfid_card_found(card_id):
 try:
     while True:
         user_tick()
-        key_tick()
+        current_key_store.key_tick()
         time.sleep(MAIN_LOOP_DELAY_S)
+except Exception as ex:
+    ex.with_traceback()
 finally:
     key_reader.cleanup()
     user_reader.cleanup()
