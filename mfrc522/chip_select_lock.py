@@ -51,19 +51,19 @@ class ChipSelectLineLock:
     _line: int
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
-        # print("Acquiring: ", self)
+        # logger.log(logging.INFO, "Acquiring: %s", self)
         return self._csl.acquire(self._line, blocking, timeout)
 
     def release(self) -> None:
-        # print("Releasing: ", self)
+        # logger.log(logging.INFO, "Releasing: %s", self)
         self._csl.release()
 
     def __enter__(self):
-        # print("Entering: ", self)
+        # logger.log(logging.INFO, "Entering: %s", self)
         # traceback.print_stack()
         self._csl.acquire(self._line, blocking=True)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # print("Exiting: ", self)
+        # logger.log(logging.INFO, "Exiting: %s", self)
         # traceback.print_stack()
         self._csl.release()

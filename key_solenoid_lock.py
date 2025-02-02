@@ -1,4 +1,6 @@
 from threading import RLock
+from logger_instance import logger
+import logging
 
 import gpiozero
 
@@ -21,10 +23,10 @@ class KeySolenoidLock:
     def is_key_locked(self, value: bool):
         with self._lock:
             if value:
-                print("Locking key")
+                logger.log(logging.INFO, "Locking key")
                 self._is_key_locked = True
                 self._solenoid_controller.off()
             else:
-                print("Unlocking key")
+                logger.log(logging.INFO, "Unlocking key")
                 self._is_key_locked = False
                 self._solenoid_controller.on()
