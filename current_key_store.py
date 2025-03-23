@@ -14,9 +14,10 @@ KEY_STOLEN_LIMIT = datetime.timedelta(seconds=1)
 
 
 class CurrentKeyStore:
-    unauthorized_key_swap_attempted = Event()
-    key_stolen = Event()
-    key_found = Event()
+    relock_key_timeout_event: Event["CurrentKeyStore", None]
+    unauthorized_key_swap_attempted: Event["CurrentKeyStore", None]
+    key_stolen: Event["CurrentKeyStore", KeyData]
+    key_found: Event["CurrentKeyStore", KeyData]
     past_key_card_id: str | None = None
     current_key: KeyData | None = None
     key_reader: SimpleMFRC522
@@ -30,9 +31,8 @@ class CurrentKeyStore:
     _lock: RLock
     _is_key_locked: bool
     _solenoid_controller: gpiozero.DigitalOutputDevice
-    _relock_key_timeout_ms = Event()
-    _relock_key_timeout_timer: threading.Timer | None
-    relock_key_timeout_event = Event()
+    _relock_key_timeout_ms: int
+    _relock_key_timeout_timer: threading.Timer | None = None
 
     def __init__(
         self,
@@ -44,6 +44,10 @@ class CurrentKeyStore:
         key_relock_timeout_s: float | int,
         keys_db: KeysDB | None = None,
     ):
+        self.relock_key_timeout_event = Event(self)
+        self.unauthorized_key_swap_attempted = Event(self)
+        self.key_stolen = Event(self)
+        self.key_found = Event(self)
         self.key_reader = key_reader
         self.key_reader_timeout_s = key_reader_timeout_s
         self.key_relock_timeout_s = key_relock_timeout_s
@@ -58,10 +62,11 @@ class CurrentKeyStore:
             self._is_key_being_stolen
             and datetime.datetime.now() >= self._key_stolen_decision_time
         ):
+            key = self.keys_db.by_rf_id(self._past_stolen_key_card_id)
             self._is_key_being_stolen = False
             self._past_stolen_key_card_id = None
             self._key_stolen_decision_time = None
-            self.key_stolen.trigger()
+            self.key_stolen.trigger(key)
 
         card_id = self.key_reader.read_id(timeout=self.key_reader_timeout_s)
         # if card_id is not None:
@@ -119,7 +124,9 @@ class CurrentKeyStore:
             logger.log(logging.INFO, "Unlocking key")
             self._is_key_locked = False
             self._solenoid_controller.on()
-            self._relock_key_timeout_timer = threading.Timer(self._relock_key_timeout_ms, self._on_relock_key_timeout)
+            self._relock_key_timeout_timer = threading.Timer(
+                self._relock_key_timeout_ms, self._on_relock_key_timeout
+            )
             self._relock_key_timeout_timer.start()
 
     def _on_relock_key_timeout(self):

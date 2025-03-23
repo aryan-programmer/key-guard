@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 from threading import RLock
 from typing import List
@@ -32,6 +31,7 @@ class ChipSelectLinesLock:
         self._num_lockings += 1
         self._current_line = line
         self._lines[self._current_line].off()
+        return True
 
     def release(self) -> None:
         line = self._current_line
