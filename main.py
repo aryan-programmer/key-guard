@@ -9,8 +9,7 @@ from RPi import GPIO
 
 from current_key_store import CurrentKeyStore
 from data_objects import UserData, KeyData
-from database import KeysDB, UsersDB
-from key_solenoid_lock import KeySolenoidLock
+from database import UsersDB
 from mfrc522 import SimpleMFRC522
 from mfrc522.chip_select_lock import ChipSelectLinesLock
 
@@ -52,11 +51,9 @@ user_reader = SimpleMFRC522(
     bus=0, device=0, lock=lines_locks.individual_line_lock(0))
 key_reader = SimpleMFRC522(
     bus=0, device=0, lock=lines_locks.individual_line_lock(1))
-key_locker = KeySolenoidLock(
-    init_locked=False, solenoid_controller=solenoid1_controller, relock_key_timeout_ms=RELOCK_KEY_TIMEOUT_S)
 past_user_card_id: str | None = None
 current_key_store = CurrentKeyStore(
-    key_locker=key_locker,
+    init_locked=False, solenoid_controller=solenoid1_controller, relock_key_timeout_ms=RELOCK_KEY_TIMEOUT_S,
     key_reader=key_reader,
     key_reader_timeout_s=READER_TIMEOUT_S,
     key_relock_timeout_s=RELOCK_KEY_TIMEOUT_S,
@@ -109,10 +106,9 @@ def on_unknown_user_found(card_id):
     # threading.Timer(3, turn_off_buzzer).start()
 
 
-@key_locker.relock_key_timeout_event.on
+@current_key_store.relock_key_timeout_event.on
 def relock_key_timeout_handler():
-    current_key_store.key_tick()
-    key_locker.is_key_locked = True
+    logger.log(logging.INFO, "Re-locking key")
     # turn_off_buzzer()
 
 
@@ -129,7 +125,7 @@ def user_tick():
     user = UsersDB().by_rf_id(card_id)
     if user is not None:
         on_user_found(user)
-        key_locker.is_key_locked = False
+        current_key_store.unlock_key()
     elif card_id is not None:
         on_unknown_user_found(card_id)
 
