@@ -60,7 +60,7 @@ current_key_store = CurrentKeyStore(
     key_relock_timeout_s=RELOCK_KEY_TIMEOUT_S,
 )
 
-# print(
+# logger.log(logging.INFO,
 #     f"Buzzer data: min: {buzzer.min_tone.frequency}, mid: {buzzer.mid_tone.frequency}, max: {buzzer.max_tone.frequency}"
 # )
 
@@ -118,8 +118,8 @@ def user_tick():
     global past_user_card_id
     card_id = user_reader.read_id(timeout=READER_TIMEOUT_S)
     # if card_id is not None:
-    #     print("Past User: ", past_user_card_id)
-    #     print("User: ", card_id)
+    #     logger.log(logging.INFO, "Past User: %s", past_user_card_id)
+    #     logger.log(logging.INFO, "User: %s", card_id)
     if past_user_card_id == card_id:
         past_user_card_id = card_id
         return

@@ -65,7 +65,8 @@ class SimpleMFRC522:
             return status, None
         card_id = uid_to_num(uid)
         self._reader.select_tag(uid)
-        status = self._reader.auth(self._reader.PICC_AUTHENT1A, 11, self.KEY, uid)
+        status = self._reader.auth(
+            self._reader.PICC_AUTHENT1A, 11, self.KEY, uid)
         return status, card_id
 
     def _read_no_block(self):
@@ -100,10 +101,12 @@ class SimpleMFRC522:
         self._reader.read_block(11)
         if status == self._reader.MI_OK:
             data = bytearray()
-            data.extend(bytearray(text.ljust(len(self.BLOCK_ADDRS) * 16).encode('ascii')))
+            data.extend(bytearray(text.ljust(
+                len(self.BLOCK_ADDRS) * 16).encode('ascii')))
             i = 0
             for block_num in self.BLOCK_ADDRS:
-                self._reader.write_block(block_num, data[(i * 16):(i + 1) * 16])
+                self._reader.write_block(
+                    block_num, data[(i * 16):(i + 1) * 16])
                 i += 1
         self._reader.stop_crypto1()
         return card_id, text[0:(len(self.BLOCK_ADDRS) * 16)]
