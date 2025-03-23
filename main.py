@@ -35,7 +35,8 @@ MAIN_LOOP_DELAY_S = 1 / 1000
 
 led = gpiozero.LED(27)
 # buzzer = gpiozero.TonalBuzzer(12, mid_tone=Tone("A5"))
-solenoid_controller = gpiozero.DigitalOutputDevice(23)
+solenoid1_controller = gpiozero.DigitalOutputDevice(24)
+solenoid2_controller = gpiozero.DigitalOutputDevice(23)
 set_pin_mode()
 reset_pin = gpiozero.DigitalOutputDevice(22)
 
@@ -43,15 +44,16 @@ reset_pin.off()
 time.sleep(1)
 reset_pin.on()
 
-user_reader_select = gpiozero.DigitalOutputDevice(5)
-key_reader_select = gpiozero.DigitalOutputDevice(6)
-lines_locks = ChipSelectLinesLock([user_reader_select, key_reader_select])
+user_reader_select = gpiozero.DigitalOutputDevice(25)
+key1_reader_select = gpiozero.DigitalOutputDevice(5)
+key2_reader_select = gpiozero.DigitalOutputDevice(6)
+lines_locks = ChipSelectLinesLock([user_reader_select, key1_reader_select, key2_reader_select])
 user_reader = SimpleMFRC522(
     bus=0, device=0, lock=lines_locks.individual_line_lock(0))
 key_reader = SimpleMFRC522(
     bus=0, device=0, lock=lines_locks.individual_line_lock(1))
 key_locker = KeySolenoidLock(
-    init_locked=False, solenoid_controller=solenoid_controller)
+    init_locked=False, solenoid_controller=solenoid1_controller, relock_key_timeout_ms=RELOCK_KEY_TIMEOUT_S)
 past_user_card_id: str | None = None
 current_key_store = CurrentKeyStore(
     key_locker=key_locker,
@@ -107,8 +109,8 @@ def on_unknown_user_found(card_id):
     # threading.Timer(3, turn_off_buzzer).start()
 
 
+@key_locker.relock_key_timeout_event.on
 def relock_key_timeout_handler():
-    logger.log(logging.INFO, "Re-locking key")
     current_key_store.key_tick()
     key_locker.is_key_locked = True
     # turn_off_buzzer()
@@ -128,8 +130,6 @@ def user_tick():
     if user is not None:
         on_user_found(user)
         key_locker.is_key_locked = False
-        threading.Timer(RELOCK_KEY_TIMEOUT_S,
-                        relock_key_timeout_handler).start()
     elif card_id is not None:
         on_unknown_user_found(card_id)
 

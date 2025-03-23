@@ -4,8 +4,12 @@
 			"id": "1",
 			"rf_id": "b8463312df",
 			"name": "Key 1"
+		},
+		{
+			"id": "2",
+			"rf_id": "f37199a6bd",
+			"name": "Key 2"
 		}
-		// f37199a6bd
 		// b815fc1243
 	],
 	"users": [
@@ -14,10 +18,18 @@
 			"rf_id": "625749512d",
 			"name": "Aryan Chudasama",
 			"authorized_for": [
+				"1",
+				"2"
+			]
+		},
+		{
+			"id": "1",
+			"rf_id": "53b5249654",
+			"name": "Manan Gohel",
+			"authorized_for": [
 				"1"
 			]
 		}
-		// 53b5249654
 		// 625b46512e
 	]
 }

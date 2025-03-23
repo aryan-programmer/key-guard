@@ -90,4 +90,3 @@ class CurrentKeyStore:
                 self.unauthorized_key_swap_attempted.trigger()
         else:
             self.past_key_card_id = None
-            self.key_locker.is_key_locked = True
