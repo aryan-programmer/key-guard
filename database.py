@@ -1,3 +1,4 @@
+
 import functools
 from typing import Dict
 
@@ -11,7 +12,8 @@ from singleton import Singleton
 def parse_database():
     with open('./database.json') as json_data:
         d = pyjson5.load(json_data)
-        keys = [KeyData(id=v["id"], rf_id=v["rf_id"], name=v["name"]) for v in d["keys"]]
+        keys = [KeyData(id=v["id"], rf_id=v["rf_id"], name=v["name"])
+                for v in d["keys"]]
         users = [UserData(id=v["id"], rf_id=v["rf_id"], name=v["name"], authorized_for=v["authorized_for"]) for v in
                  d["users"]]
         return keys, users

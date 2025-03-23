@@ -1,3 +1,4 @@
+
 class Event:
     def __init__(self):
         # Initialise a list of listeners

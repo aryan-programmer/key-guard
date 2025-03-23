@@ -1,9 +1,11 @@
-import dataclasses
+
 import datetime
+import logging
 from data_objects import KeyData
 from database import KeysDB
 from event import Event
 from key_solenoid_lock import KeySolenoidLock
+from logger_instance import logger
 from mfrc522 import SimpleMFRC522
 
 KEY_STOLEN_LIMIT = datetime.timedelta(seconds=1)
@@ -39,14 +41,6 @@ class CurrentKeyStore:
         self.keys_db = keys_db if keys_db is not None else KeysDB()
 
     def key_tick(self):
-        card_id = self.key_reader.read_id(timeout=self.key_reader_timeout_s)
-        # if card_id is not None:
-        #     print("Past Key: ", past_key_card_id)
-        #     print("Key: ", card_id)
-        if self.past_key_card_id == card_id:
-            self.past_key_card_id = card_id
-            return
-
         if (
             self._is_key_being_stolen
             and datetime.datetime.now() >= self._key_stolen_decision_time
@@ -56,6 +50,14 @@ class CurrentKeyStore:
             self._key_stolen_decision_time = None
             self.key_stolen.trigger()
 
+        card_id = self.key_reader.read_id(timeout=self.key_reader_timeout_s)
+        # if card_id is not None:
+        #     print("Past Key: ", past_key_card_id)
+        #     print("Key: ", card_id)
+        if self.past_key_card_id == card_id:
+            self.past_key_card_id = card_id
+            return
+
         if self.key_locker.is_key_locked:
             if self.past_key_card_id is None:
                 if (
@@ -63,7 +65,7 @@ class CurrentKeyStore:
                     and datetime.datetime.now() < self._key_stolen_decision_time
                     and self._past_stolen_key_card_id == card_id
                 ):
-                    print("Key re-found")
+                    logger.log(logging.INFO, "Key re-found")
                     self.past_key_card_id = card_id
                     self._is_key_being_stolen = False
                     self._past_stolen_key_card_id = None
@@ -72,7 +74,7 @@ class CurrentKeyStore:
                 else:
                     self.unauthorized_key_swap_attempted.trigger()
             else:
-                print("Key missing")
+                logger.log(logging.INFO, "Key missing")
                 self._is_key_being_stolen = True
                 self._past_stolen_key_card_id = self.past_key_card_id
                 self.past_key_card_id = None
@@ -87,3 +89,6 @@ class CurrentKeyStore:
                 self.key_locker.is_key_locked = True
             else:
                 self.unauthorized_key_swap_attempted.trigger()
+        else:
+            self.past_key_card_id = None
+            self.key_locker.is_key_locked = True

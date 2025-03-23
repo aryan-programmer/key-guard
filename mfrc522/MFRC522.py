@@ -20,6 +20,7 @@
 #    You should have received a copy of the GNU Lesser General Public License
 #    along with MFRC522-Python.  If not, see <http://www.gnu.org/licenses/>.
 #
+
 import logging
 import traceback
 

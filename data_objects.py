@@ -1,4 +1,6 @@
+
 from dataclasses import dataclass
+from typing import List
 
 
 @dataclass
@@ -13,4 +15,4 @@ class UserData:
     id: str
     rf_id: str
     name: str
-    authorized_for: [str]
+    authorized_for: List[str]
