@@ -12,22 +12,24 @@ def timing_decorator(f):
         result = f(*args, **kw)
         te = perf_counter()
         logger.log(
-            logging.INFO, f'func:{f.__name__!r} args:[{args!r}, {kw!r}] took: {te - ts:2.4f} sec')
+            logging.INFO,
+            f"func:{f.__name__!r} args:[{args!r}, {kw!r}] took: {te - ts:2.4f} sec",
+        )
         return result
 
     return wrap
 
 
 @contextmanager
-def time_catcher() -> float:
+def time_catcher():
     t1 = t2 = perf_counter()
     yield lambda: t2 - t1
     t2 = perf_counter()
 
 
 @contextmanager
-def timing_wither(name) -> float:
+def timing_wither(name):
     t1 = t2 = perf_counter()
     yield
     t2 = perf_counter()
-    logger.log(logging.INFO, f'func:{name} took: {t2 - t1:2.4f} sec')
+    logger.log(logging.INFO, f"func:{name} took: {t2 - t1:2.4f} sec")

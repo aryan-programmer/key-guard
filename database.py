@@ -1,5 +1,5 @@
 import functools
-from typing import Dict
+from typing import Dict, Tuple
 
 import pyjson5
 
@@ -8,7 +8,7 @@ from singleton import Singleton
 
 
 @functools.cache
-def parse_database():
+def parse_database() -> Tuple[List[KeyData], List[UserData]]:
     with open("./database.json") as json_data:
         d = pyjson5.load(json_data)
         keys = [
@@ -35,10 +35,10 @@ class KeysDB(Singleton):
         self._keys_by_id = {v.id: v for v in keys}
         self._keys_by_rf_id = {v.rf_id: v for v in keys}
 
-    def by_id(self, k_id):
+    def by_id(self, k_id: str) -> KeyData | None:
         return self._keys_by_id.get(k_id)
 
-    def by_rf_id(self, rf_id):
+    def by_rf_id(self, rf_id: str) -> KeyData | None:
         return self._keys_by_rf_id.get(rf_id)
 
 
@@ -51,8 +51,8 @@ class UsersDB(Singleton):
         self._users_by_id = {v.id: v for v in users}
         self._users_by_rf_id = {v.rf_id: v for v in users}
 
-    def by_id(self, k_id):
+    def by_id(self, k_id: str) -> KeyData | None:
         return self._users_by_id.get(k_id)
 
-    def by_rf_id(self, rf_id):
+    def by_rf_id(self, rf_id: str) -> KeyData | None:
         return self._users_by_rf_id.get(rf_id)

@@ -19,7 +19,9 @@ class Event(Generic[TOrigin, TParameter]):
     @property
     def on(self):
         # A decorator to run addListener on the input function.
-        def wrapper(func):
+        def wrapper(
+            func: Callable[[TOrigin, TParameter], None]
+        ) -> Callable[[TOrigin, TParameter], None]:
             self.add_listener(func)
             return func
 
