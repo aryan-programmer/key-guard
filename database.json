@@ -3,12 +3,12 @@
 		{
 			"id": "1",
 			"rf_id": "b8463312df",
-			"name": "Key 1"
+			"name": "Key to Lab Alpha"
 		},
 		{
 			"id": "2",
 			"rf_id": "f37199a6bd",
-			"name": "Key 2"
+			"name": "Key to Device Beta"
 		}
 		// b815fc1243
 	],
@@ -23,7 +23,7 @@
 			]
 		},
 		{
-			"id": "1",
+			"id": "2",
 			"rf_id": "53b5249654",
 			"name": "Manan Gohel",
 			"authorized_for": [
