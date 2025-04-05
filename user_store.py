@@ -34,8 +34,9 @@ class UserStore:
             self._past_user_card_id = card_id
             return
         self._past_user_card_id = card_id
-        self.unknown_user_found.on
-        user = UsersDB().by_rf_id(card_id)
+        if card_id is None:
+            return
+        user = self.users_db.by_rf_id(card_id)
         if user is not None:
             self.user_found.trigger(user)
         elif card_id is not None:

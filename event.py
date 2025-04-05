@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from types import EllipsisType
-from typing import Generic, List, TypeVar, Union
+from typing import Generic, TypeVar, Union
 
 
 TOrigin = TypeVar("TOrigin")
@@ -8,7 +8,7 @@ TParameter = TypeVar("TParameter")
 
 
 class Event(Generic[TOrigin, TParameter]):
-    _listeners: List[Callable[[TOrigin, TParameter], None]]
+    _listeners: list[Callable[[TOrigin, TParameter], None]]
 
     def __init__(self, origin: TOrigin):
         self._origin = origin
@@ -20,7 +20,7 @@ class Event(Generic[TOrigin, TParameter]):
     def on(self):
         # A decorator to run addListener on the input function.
         def wrapper(
-            func: Callable[[TOrigin, TParameter], None]
+            func: Callable[[TOrigin, TParameter], None],
         ) -> Callable[[TOrigin, TParameter], None]:
             self.add_listener(func)
             return func

@@ -1,6 +1,5 @@
 import math
 import time
-from typing import Tuple
 
 from . import MFRC522
 from .chip_select_lock import ChipSelectLineLock
@@ -84,7 +83,7 @@ class SimpleMFRC522:
         self._reader.stop_crypto1()
         return card_id, text_read
 
-    def write(self, text: str) -> Tuple[str, str | None]:
+    def write(self, text: str) -> tuple[str, str | None]:
         with self._reader.lock:
             self._reader.turn_antenna_on()
             card_id, text_in = self._write_no_block(text)

@@ -3,7 +3,6 @@ import logging
 from threading import RLock
 import threading
 import time
-from typing import Tuple
 
 import gpiozero
 from data_objects import KeyData
@@ -18,7 +17,7 @@ KEY_STOLEN_LIMIT = datetime.timedelta(seconds=1)
 class KeyStore:
     relocked: Event["KeyStore", None]
     unauthorized_key_place_attempted: Event["KeyStore", str | None]
-    key_stolen: Event["KeyStore", Tuple[KeyData, str | None]]
+    key_stolen: Event["KeyStore", tuple[KeyData, str | None]]
     key_found: Event["KeyStore", KeyData]
     past_key_card_id: str | None = None
     current_key: KeyData | None = None

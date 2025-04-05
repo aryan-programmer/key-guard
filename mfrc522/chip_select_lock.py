@@ -1,18 +1,17 @@
 from dataclasses import dataclass
 from threading import RLock
-from typing import List
 
 import gpiozero
 
 
 class ChipSelectLinesLock:
     _lock: RLock
-    _lines: List[gpiozero.DigitalOutputDevice]
-    _lines_locks: List[RLock]
+    _lines: list[gpiozero.DigitalOutputDevice]
+    _lines_locks: list[RLock]
     _current_line: int | None
     _num_lockings: int
 
-    def __init__(self, lines: List[gpiozero.DigitalOutputDevice]) -> None:
+    def __init__(self, lines: list[gpiozero.DigitalOutputDevice]) -> None:
         self._lock = RLock()
         self._lines = lines
         self._lines_locks = [RLock() for _ in self._lines]
