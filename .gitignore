@@ -380,3 +380,7 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 ws_hmac
 passwords.json
+key_guard.csr
+key_guard.key
+key_guard.pem
+key_guard_pem_password

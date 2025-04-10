@@ -4,7 +4,7 @@ import sys
 import threading
 import time
 import traceback
-from typing import Literal
+from typing import Any, Literal
 
 import gpiozero
 from RPi import GPIO
@@ -16,6 +16,7 @@ import input_timeout
 if True:
     from typeguard import install_import_hook
 
+    install_import_hook("event")
     install_import_hook("user_store")
     install_import_hook("key_store")
     install_import_hook("data_objects")
@@ -103,7 +104,6 @@ user_store = UserStore(
     user_reader=user_reader,
     user_reader_timeout_s=READER_TIMEOUT_S,
 )
-is_waiting_for_user_input = False
 
 
 @typechecked
@@ -127,8 +127,6 @@ def get_key_selection_options(user: UserData) -> list[KeySelectionOption]:
 
 @typechecked
 def on_key_selected(user: UserData, iv: int) -> bool:
-    global is_waiting_for_user_input
-    is_waiting_for_user_input = False
     i = iv - 1
     if not (0 <= i < len(key_stores)):
         return False
@@ -156,25 +154,62 @@ def on_key_selected(user: UserData, iv: int) -> bool:
         return False
 
 
+with open("./key_guard_pem_password") as f:
+    pem_file_password = f.readline().strip()
+
+
 websocket_server = WebsocketServer(
     secret_file="./ws_hmac",
     user_key_selection_timeout_s=KEY_SELECTION_INPUT_TIMEOUT_S,
     get_key_selection_options=get_key_selection_options,
-    should_block_user_login=lambda: is_waiting_for_user_input,
+    get_current_user=lambda: user_store.current_user,
     on_key_selected=on_key_selected,
+    pem_file="./key_guard.pem",
+    private_key_file="./key_guard.key",
+    pem_file_password=pem_file_password,
 )
+
+
+@websocket_server.client_connected.on
+@typechecked
+def on_client_connected(origin: WebsocketServer, addr: Any):
+    logger.log(logging.INFO, "Connection established to client: {0}", addr)
+
+
+@websocket_server.client_disconnected.on
+@typechecked
+def on_client_disconnected(
+    origin: WebsocketServer,
+    data: tuple[Any, Literal["from-server-side"] | Literal["from-client-side"]],
+):
+    addr, side = data
+    logger.log(logging.INFO, "Connection to client {0} closed {1}", addr, side)
 
 
 @key1_store.unauthorized_key_place_attempted.on
 @key2_store.unauthorized_key_place_attempted.on
 @typechecked
-def on_unauthorized_key_swap_attempted(origin: KeyStore, data: str | None):
+def on_unauthorized_key_place_attempted(origin: KeyStore, data: str | KeyData):
     logger.log(
         logging.WARNING,
-        "({0}) Unauthorized key swap attempted: {1}",
+        "({0}) An unknown user attempted to place a key: {1}",
         origin.slot_name,
         data,
     )
+    websocket_server.on_unauthorized_key_place_attempted(origin.slot_name, data)
+
+
+@key1_store.unknown_key_placed.on
+@key2_store.unknown_key_placed.on
+@typechecked
+def on_unknown_key_placed(origin: KeyStore, data: str):
+    logger.log(
+        logging.WARNING,
+        "({0}) Unknown key placed: {1}",
+        origin.slot_name,
+        data,
+    )
+    websocket_server.on_unknown_key_placed(origin.slot_name, data)
 
 
 @key1_store.key_stolen.on
@@ -192,6 +227,7 @@ def on_key_stolen(origin: KeyStore, data: tuple[KeyData, str | None]):
         )
     else:
         logger.log(logging.WARNING, "({0}) Key stolen: {1}", origin.slot_name, key)
+    websocket_server.on_key_stolen(origin.slot_name, key, replacement)
 
 
 @key1_store.key_found.on
@@ -199,53 +235,53 @@ def on_key_stolen(origin: KeyStore, data: tuple[KeyData, str | None]):
 @typechecked
 def on_key_found(origin: KeyStore, key: KeyData):
     logger.log(logging.INFO, "({0}) Key found: {1}", origin.slot_name, key)
+    websocket_server.on_key_slot_locked("success")
 
 
 @key1_store.relocked.on
 @key2_store.relocked.on
 @typechecked
-def relock_key_timeout_handler(origin: KeyStore):
+def on_relock_key_timeout(origin: KeyStore):
     logger.log(logging.INFO, "({0}) Re-locking key", origin.slot_name)
+    websocket_server.on_key_slot_locked("no-change")
 
 
-def stop_waiting_for_user_input(user: UserData):
-    global is_waiting_for_user_input
-    if is_waiting_for_user_input:
-        logger.log(
-            logging.WARNING, "User {0} failed to enter operation in alloted time.", user
-        )
-        is_waiting_for_user_input = False
+@key1_store.key_uninserted.on
+@key2_store.key_uninserted.on
+@typechecked
+def on_key_uninserted(origin: KeyStore, key: KeyData):
+    logger.log(logging.INFO, "({0}) Key uninserted: {1}", origin.slot_name, key)
+    websocket_server.on_key_slot_locked("success")
+
+
+@key1_store.solenoid_locked.on
+@key2_store.solenoid_locked.on
+@typechecked
+def on_solenoid_locked(origin: KeyStore):
+    user_store.logout_user()
+    websocket_server.on_key_slot_locked("success")
 
 
 @user_store.user_found.on
 @typechecked
-def on_user_found(source: UserStore, user: UserData):
-    global is_waiting_for_user_input
-    if is_waiting_for_user_input:
-        return
-    is_waiting_for_user_input = True
+def on_user_found(
+    source: UserStore, data: tuple[UserData, Literal["login"] | Literal["card"]]
+):
+    user, mode = data
     logger.log(logging.INFO, "User found: {0}", user)
-    websocket_server.on_user_found(user)
+    if mode != "login":
+        websocket_server.on_user_found(user)
     threading.Timer(
-        function=stop_waiting_for_user_input,
+        function=user_store.logout_user,
         interval=KEY_SELECTION_INPUT_TIMEOUT_S,
-        args=(user,),
     ).start()
 
 
 @websocket_server.user_login.on
 @typechecked
 def on_user_login(source: WebsocketServer, user: UserData):
-    global is_waiting_for_user_input
-    if is_waiting_for_user_input:
-        return
-    is_waiting_for_user_input = True
     logger.log(logging.INFO, "User login with password: {0}", user)
-    threading.Timer(
-        function=stop_waiting_for_user_input,
-        interval=KEY_SELECTION_INPUT_TIMEOUT_S,
-        args=(user,),
-    ).start()
+    user_store.on_user_login(user)
 
 
 @websocket_server.user_login_blocked.on
@@ -253,6 +289,18 @@ def on_user_login(source: WebsocketServer, user: UserData):
 def on_user_login_blocked(source: WebsocketServer, v: tuple[str, str]):
     (username, password) = v
     logger.log(logging.INFO, "User login blocked: {0}", username)
+
+
+@user_store.user_card_found_but_blocked.on
+@typechecked
+def on_user_card_blocked(source: UserStore, user: UserData):
+    logger.log(
+        logging.INFO,
+        "User card {0} found but blocked, as another user {1} is currently logged in.",
+        user.name,
+        user_store.current_user,
+    )
+    websocket_server.on_user_card_found_but_blocked(user, user_store.current_user)
 
 
 @websocket_server.user_login_failed.on
@@ -268,8 +316,6 @@ def on_key_selection_failed(
     source: WebsocketServer,
     v: tuple[Literal["timeout"] | Literal["invalid-jwt"], str | dict, int],
 ):
-    global is_waiting_for_user_input
-    is_waiting_for_user_input = False
     (reason, jwt, slot_id) = v
     slot_id -= 1
     if reason == "timeout":
@@ -292,6 +338,7 @@ def on_key_selection_failed(
 @typechecked
 def on_unknown_user_found(source: UserStore, card_id: str):
     logger.log(logging.WARNING, "Unknown user: Card ID: {0}", card_id)
+    websocket_server.on_unknown_user_found(card_id)
 
 
 try:

@@ -16,9 +16,12 @@ KEY_STOLEN_LIMIT = datetime.timedelta(seconds=1)
 
 class KeyStore:
     relocked: Event["KeyStore", None]
-    unauthorized_key_place_attempted: Event["KeyStore", str | None]
+    unauthorized_key_place_attempted: Event["KeyStore", str | KeyData]
+    unknown_key_placed: Event["KeyStore", str]
     key_stolen: Event["KeyStore", tuple[KeyData, str | None]]
+    key_uninserted: Event["KeyStore", KeyData]
     key_found: Event["KeyStore", KeyData]
+    solenoid_locked: Event["KeyStore", None]
     past_key_card_id: str | None = None
     current_key: KeyData | None = None
     reader: SimpleMFRC522
@@ -56,6 +59,9 @@ class KeyStore:
         self.unauthorized_key_place_attempted = Event(self)
         self.key_stolen = Event(self)
         self.key_found = Event(self)
+        self.unknown_key_placed = Event(self)
+        self.solenoid_locked = Event(self)
+        self.key_uninserted = Event(self)
         self.slot_name = slot_name
         self.reader = reader
         self.reader_timeout_s = reader_timeout_s
@@ -139,7 +145,10 @@ class KeyStore:
                         self.key_stolen.trigger((key, card_id))
                         self.current_key = None
                     else:
-                        self.unauthorized_key_place_attempted.trigger(card_id)
+                        key = self.keys_db.by_rf_id(card_id)
+                        self.unauthorized_key_place_attempted.trigger(
+                            key if key is not None else card_id
+                        )
 
             # If we are unlocked:
             # And there is a key card
@@ -147,23 +156,24 @@ class KeyStore:
                 key = self.keys_db.by_rf_id(card_id)
                 if key is not None:  # And the key exists:
                     # Then, we have a valid key insertion:
-                    self.key_found.trigger(key)
                     self.current_key = key
+                    self.key_found.trigger(key)
                     self.lock_key()
                 else:
                     # Otherwise, the key placement is invalid
-                    self.unauthorized_key_place_attempted.trigger(card_id)
+                    self.unknown_key_placed.trigger(card_id)
             elif self.current_key is not None:
                 # Otherwise, the validated user took away a valid key
-                logger.log(logging.INFO, "({0}) Key uninserted", self.slot_name)
+                past_key = self.current_key
                 self.current_key = None
+                self.key_uninserted.trigger(past_key)
                 self.lock_key()
         finally:
             self.past_key_card_id = card_id
             if self._initialization_state:
-                self.lock_key()
+                self.lock_key(quick_lock=True)
 
-    def lock_key(self):
+    def lock_key(self, quick_lock: bool = False):
         with self._lock:
             logger.log(logging.INFO, "({0}) Locking key", self.slot_name)
             self._is_key_locked = True
@@ -172,9 +182,10 @@ class KeyStore:
                 self._relock_key_timeout_timer = None
             if self._initialization_state:
                 self._initialization_state = False
-            else:
+            elif not quick_lock:
                 time.sleep(self.solenoid_lock_wait_time_s)
             self._solenoid_controller.off()
+            self.solenoid_locked.trigger()
 
     def unlock_key(self):
         with self._lock:
@@ -188,6 +199,5 @@ class KeyStore:
 
     def _on_relock_key_timeout(self):
         self._relock_key_timeout_timer = None
-        self.tick()
-        self.lock_key()
         self.relocked.trigger()
+        self.lock_key(quick_lock=True)

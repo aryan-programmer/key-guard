@@ -35,6 +35,7 @@ class SimpleMFRC522:
         t1 = time.perf_counter()
         t_end = t1 + timeout
         with self._reader.lock:
+            # print([v.value for v in self._reader.lock._csl._lines])
             self._reader.turn_antenna_on()
             card_id = self._read_id_no_block()
             if not card_id:

@@ -425,4 +425,4 @@ class MFRC522:
 
             self.write_register(self.TxAutoReg, 0x40)
             self.write_register(self.ModeReg, 0x3D)
-            self.turn_antenna_on()
+            self.turn_antenna_off()
