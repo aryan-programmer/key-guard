@@ -384,3 +384,6 @@ key_guard.csr
 key_guard.key
 key_guard.pem
 key_guard_pem_password
+ws_rsa
+.gitignore
+ws_rsa.pub

@@ -241,7 +241,7 @@ def on_key_found(origin: KeyStore, key: KeyData):
 @key1_store.relocked.on
 @key2_store.relocked.on
 @typechecked
-def on_relock_key_timeout(origin: KeyStore):
+def on_relock_key_timeout(origin: KeyStore, _: None = None):
     logger.log(logging.INFO, "({0}) Re-locking key", origin.slot_name)
     websocket_server.on_key_slot_locked("no-change")
 
@@ -257,7 +257,7 @@ def on_key_uninserted(origin: KeyStore, key: KeyData):
 @key1_store.solenoid_locked.on
 @key2_store.solenoid_locked.on
 @typechecked
-def on_solenoid_locked(origin: KeyStore):
+def on_solenoid_locked(origin: KeyStore, _: None = None):
     user_store.logout_user()
     websocket_server.on_key_slot_locked("success")
 
